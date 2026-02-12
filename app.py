@@ -170,7 +170,7 @@ def get_status(task_id):
 
 @app.route('/download/<task_id>', methods=['GET', 'OPTIONS'])
 def get_download(task_id):
-    """Получить прямую ссылку на скачивание"""
+    """Проксировать скачивание через backend"""
     if request.method == 'OPTIONS':
         return '', 204
         
@@ -183,15 +183,63 @@ def get_download(task_id):
         if task['status'] != 'completed':
             return jsonify({'error': 'Task not completed yet'}), 400
         
-        # Возвращаем прямую ссылку (не проксируем)
-        return jsonify({
-            'download_url': task['download_url'],
-            'title': task['title'],
-            'thumbnail': task['thumbnail'],
-            'duration': task['duration'],
-            'view_count': task['view_count'],
-            'channel': task['channel'],
-        })
+        # Проверяем, нужно ли проксировать
+        proxy = request.args.get('proxy', 'false').lower() == 'true'
+        
+        if not proxy:
+            # Возвращаем информацию о файле
+            return jsonify({
+                'download_url': task['download_url'],
+                'title': task['title'],
+                'thumbnail': task['thumbnail'],
+                'duration': task['duration'],
+                'view_count': task['view_count'],
+                'channel': task['channel'],
+            })
+        
+        # Проксируем скачивание
+        download_url = task['download_url']
+        
+        # Делаем запрос к YouTube с правильными заголовками
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com',
+            'Sec-Fetch-Dest': 'video',
+            'Sec-Fetch-Mode': 'no-cors',
+            'Sec-Fetch-Site': 'cross-site',
+        }
+        
+        response = requests.get(download_url, headers=headers, stream=True, timeout=30)
+        
+        if response.status_code != 200:
+            return jsonify({'error': f'YouTube returned status: {response.status_code}'}), 500
+        
+        # Создаем безопасное имя файла
+        safe_title = "".join(c for c in task['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f"{safe_title}.mp4"
+        
+        def generate():
+            try:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            except Exception as e:
+                print(f"Error streaming: {str(e)}")
+        
+        # Возвращаем поток с правильными заголовками
+        return Response(
+            stream_with_context(generate()),
+            headers={
+                'Content-Type': 'video/mp4',
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+                'Cache-Control': 'no-cache',
+            }
+        )
         
     except Exception as e:
         print(f"Error in get_download: {str(e)}")
