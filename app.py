@@ -175,16 +175,20 @@ def get_download(task_id):
         return '', 204
         
     try:
+        print(f"Download request for task: {task_id}")
         task = tasks.get(task_id)
         
         if not task:
+            print(f"Task not found: {task_id}")
             return jsonify({'error': 'Task not found'}), 404
         
         if task['status'] != 'completed':
+            print(f"Task not completed: {task['status']}")
             return jsonify({'error': 'Task not completed yet'}), 400
         
         # Проверяем, нужно ли проксировать
         proxy = request.args.get('proxy', 'false').lower() == 'true'
+        print(f"Proxy mode: {proxy}")
         
         if not proxy:
             # Возвращаем информацию о файле
@@ -199,37 +203,49 @@ def get_download(task_id):
         
         # Проксируем скачивание
         download_url = task['download_url']
+        print(f"Proxying download from: {download_url[:100]}...")
         
         # Делаем запрос к YouTube с правильными заголовками
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com',
-            'Sec-Fetch-Dest': 'video',
-            'Sec-Fetch-Mode': 'no-cors',
-            'Sec-Fetch-Site': 'cross-site',
+            'Range': 'bytes=0-',
         }
         
+        print("Making request to YouTube...")
         response = requests.get(download_url, headers=headers, stream=True, timeout=30)
+        print(f"YouTube response status: {response.status_code}")
         
-        if response.status_code != 200:
+        if response.status_code not in [200, 206]:
+            print(f"YouTube returned error: {response.status_code}")
             return jsonify({'error': f'YouTube returned status: {response.status_code}'}), 500
         
-        # Создаем безопасное имя файла
-        safe_title = "".join(c for c in task['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+        # Создаем безопасное имя файла (только ASCII)
+        safe_title = "video"
+        try:
+            safe_title = "".join(c for c in task['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+            if not safe_title:
+                safe_title = "video"
+        except:
+            safe_title = "video"
+        
         filename = f"{safe_title}.mp4"
+        print(f"Filename: {filename}")
         
         def generate():
             try:
+                bytes_sent = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
+                        bytes_sent += len(chunk)
                         yield chunk
+                print(f"Streaming completed: {bytes_sent} bytes sent")
             except Exception as e:
                 print(f"Error streaming: {str(e)}")
         
         # Возвращаем поток с правильными заголовками
+        print("Starting stream...")
         return Response(
             stream_with_context(generate()),
             headers={
@@ -243,6 +259,8 @@ def get_download(task_id):
         
     except Exception as e:
         print(f"Error in get_download: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 @app.route('/info', methods=['POST', 'OPTIONS'])
