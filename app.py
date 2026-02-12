@@ -96,10 +96,11 @@ def download_video(task_id, url, quality):
 def get_format_string(quality):
     """Преобразует качество в формат yt-dlp"""
     quality_map = {
-        'best': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'fhd': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best',
-        'hd': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
-        'audio': 'bestaudio[ext=m4a]/bestaudio/best',
+        # Используем форматы которые не требуют склейки
+        'best': 'best[ext=mp4]/best',
+        'fhd': 'best[height<=1080][ext=mp4]/best[height<=1080]',
+        'hd': 'best[height<=720][ext=mp4]/best[height<=720]',
+        'audio': 'bestaudio[ext=m4a]/bestaudio',
     }
     return quality_map.get(quality, quality_map['best'])
 
