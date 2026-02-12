@@ -26,46 +26,62 @@ def download_video(task_id, url, quality):
     try:
         tasks[task_id]['status'] = 'processing'
         
-        # Настройки yt-dlp
+        # Настройки yt-dlp с дополнительными опциями
         ydl_opts = {
             'format': get_format_string(quality),
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            'nocheckcertificate': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Получаем информацию о видео
             info = ydl.extract_info(url, download=False)
             
+            if not info:
+                raise Exception("Не удалось получить информацию о видео")
+            
             # Получаем прямую ссылку на скачивание
             download_url = None
+            
+            # Пробуем разные способы получить URL
             if 'url' in info:
                 download_url = info['url']
+            elif 'requested_downloads' in info and len(info['requested_downloads']) > 0:
+                download_url = info['requested_downloads'][0].get('url')
             elif 'formats' in info and len(info['formats']) > 0:
-                # Выбираем лучший формат
-                best_format = info['formats'][-1]
-                download_url = best_format.get('url')
+                # Ищем формат с URL
+                for fmt in reversed(info['formats']):
+                    if fmt.get('url'):
+                        download_url = fmt['url']
+                        break
             
             if not download_url:
                 raise Exception("Не удалось получить ссылку на скачивание")
+            
+            print(f"Task {task_id}: Got download URL")
             
             # Обновляем задачу
             tasks[task_id].update({
                 'status': 'completed',
                 'download_url': download_url,
-                'title': info.get('title', 'Unknown'),
+                'title': info.get('title', 'video'),
                 'thumbnail': info.get('thumbnail', ''),
                 'duration': info.get('duration', 0),
                 'view_count': info.get('view_count', 0),
                 'channel': info.get('uploader', 'Unknown'),
             })
             
+            print(f"Task {task_id}: Completed successfully")
+            
     except Exception as e:
-        print(f"Error in download_video: {str(e)}")
+        error_msg = str(e)
+        print(f"Task {task_id}: Error - {error_msg}")
         tasks[task_id].update({
             'status': 'failed',
-            'error': str(e)
+            'error': error_msg
         })
 
 def get_format_string(quality):
@@ -169,43 +185,54 @@ def get_download(task_id):
         print(f"Proxying download from: {download_url}")
         
         # Делаем запрос к YouTube с таймаутом
-        response = requests.get(download_url, stream=True, timeout=30, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
-        
-        if response.status_code != 200:
-            return jsonify({'error': f'Failed to fetch video: {response.status_code}'}), 500
-        
-        # Определяем имя файла (только ASCII символы для HTTP заголовков)
-        import re
-        # Убираем все не-ASCII символы
-        filename_ascii = re.sub(r'[^\x00-\x7F]+', '_', title)
-        filename_ascii = filename_ascii.replace('/', '_').replace('\\', '_').replace('"', '')
-        filename = f"{filename_ascii}.mp4"
-        
-        # Для UTF-8 имён используем RFC 5987
-        from urllib.parse import quote
-        filename_utf8 = f"{title}.mp4".replace('/', '_').replace('\\', '_').replace('"', '')
-        filename_encoded = quote(filename_utf8.encode('utf-8'))
-        
-        # Возвращаем файл с правильными заголовками
-        def generate():
-            try:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        yield chunk
-            except Exception as e:
-                print(f"Error streaming: {str(e)}")
-        
-        return Response(
-            stream_with_context(generate()),
-            content_type=response.headers.get('content-type', 'video/mp4'),
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename_encoded}',
-                'Content-Length': response.headers.get('content-length', ''),
-                'Access-Control-Allow-Origin': '*',
-            }
-        )
+        try:
+            response = requests.get(download_url, stream=True, timeout=30, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            if response.status_code != 200:
+                print(f"YouTube returned status: {response.status_code}")
+                return jsonify({'error': f'Failed to fetch video: {response.status_code}'}), 500
+            
+            print(f"Successfully connected to YouTube, streaming file...")
+            
+            # Простое ASCII имя файла
+            import re
+            safe_title = re.sub(r'[^a-zA-Z0-9\s\-_]', '', title)[:50]  # Только безопасные символы
+            if not safe_title:
+                safe_title = 'video'
+            filename = f"{safe_title}.mp4"
+            
+            print(f"Filename: {filename}")
+            
+            # Возвращаем файл с минимальными заголовками
+            def generate():
+                try:
+                    bytes_sent = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            bytes_sent += len(chunk)
+                            yield chunk
+                    print(f"Streaming completed: {bytes_sent} bytes sent")
+                except Exception as e:
+                    print(f"Error during streaming: {str(e)}")
+            
+            return Response(
+                stream_with_context(generate()),
+                content_type='video/mp4',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-cache',
+                }
+            )
+            
+        except requests.exceptions.Timeout:
+            print("Request to YouTube timed out")
+            return jsonify({'error': 'Request timed out'}), 504
+        except requests.exceptions.RequestException as e:
+            print(f"Request error: {str(e)}")
+            return jsonify({'error': f'Request failed: {str(e)}'}), 500
         
     except Exception as e:
         print(f"Error in get_download: {str(e)}")
