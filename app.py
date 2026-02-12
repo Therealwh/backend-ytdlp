@@ -172,7 +172,7 @@ def get_status(task_id):
 
 @app.route('/download/<task_id>', methods=['GET', 'OPTIONS'])
 def get_download(task_id):
-    """Проксировать скачивание файла"""
+    """Получить прямую ссылку на скачивание"""
     if request.method == 'OPTIONS':
         return '', 204
         
@@ -185,68 +185,15 @@ def get_download(task_id):
         if task['status'] != 'completed':
             return jsonify({'error': 'Task not completed yet'}), 400
         
-        download_url = task['download_url']
-        title = task['title']
-        
-        # Проксируем файл
-        print(f"Proxying download from: {download_url}")
-        
-        # Делаем запрос к YouTube с таймаутом
-        try:
-            response = requests.get(download_url, stream=True, timeout=30, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
-            
-            if response.status_code != 200:
-                print(f"YouTube returned status: {response.status_code}")
-                return jsonify({'error': f'Failed to fetch video: {response.status_code}'}), 500
-            
-            print(f"Successfully connected to YouTube, streaming file...")
-            
-            # Простое ASCII имя файла
-            import re
-            safe_title = re.sub(r'[^a-zA-Z0-9\s\-_]', '', title)[:50]  # Только безопасные символы
-            if not safe_title:
-                safe_title = 'video'
-            filename = f"{safe_title}.mp4"
-            
-            print(f"Filename: {filename}")
-            
-            # Возвращаем файл с минимальными заголовками
-            def generate():
-                try:
-                    bytes_sent = 0
-                    chunk_size = 65536  # 64KB chunks для лучшей производительности
-                    for chunk in response.iter_content(chunk_size=chunk_size):
-                        if chunk:
-                            bytes_sent += len(chunk)
-                            if bytes_sent % (chunk_size * 10) == 0:  # Логируем каждые 640KB
-                                print(f"Streamed: {bytes_sent / 1024 / 1024:.2f} MB")
-                            yield chunk
-                    print(f"Streaming completed: {bytes_sent / 1024 / 1024:.2f} MB sent")
-                except GeneratorExit:
-                    print("Client disconnected during streaming")
-                    raise
-                except Exception as e:
-                    print(f"Error during streaming: {str(e)}")
-                    raise
-            
-            return Response(
-                stream_with_context(generate()),
-                content_type='video/mp4',
-                headers={
-                    'Content-Disposition': f'attachment; filename="{filename}"',
-                    'Access-Control-Allow-Origin': '*',
-                    'Cache-Control': 'no-cache',
-                }
-            )
-            
-        except requests.exceptions.Timeout:
-            print("Request to YouTube timed out")
-            return jsonify({'error': 'Request timed out'}), 504
-        except requests.exceptions.RequestException as e:
-            print(f"Request error: {str(e)}")
-            return jsonify({'error': f'Request failed: {str(e)}'}), 500
+        # Возвращаем прямую ссылку (не проксируем)
+        return jsonify({
+            'download_url': task['download_url'],
+            'title': task['title'],
+            'thumbnail': task['thumbnail'],
+            'duration': task['duration'],
+            'view_count': task['view_count'],
+            'channel': task['channel'],
+        })
         
     except Exception as e:
         print(f"Error in get_download: {str(e)}")
