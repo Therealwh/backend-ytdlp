@@ -26,14 +26,21 @@ def download_video(task_id, url, quality):
     try:
         tasks[task_id]['status'] = 'processing'
         
-        # Настройки yt-dlp с дополнительными опциями
+        # Настройки yt-dlp с обходом защиты YouTube
         ydl_opts = {
             'format': get_format_string(quality),
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'nocheckcertificate': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs'],
+                }
+            },
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -262,6 +269,15 @@ def get_video_info():
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            'nocheckcertificate': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs'],
+                }
+            },
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
