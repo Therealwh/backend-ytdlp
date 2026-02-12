@@ -38,12 +38,18 @@ def download_video(task_id, url, quality):
             'extract_flat': False,
             'nocheckcertificate': True,
             'outtmpl': output_template,
-            # Используем ios client - самый надежный способ
+            # Пробуем разные методы обхода
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'web'],
+                    'player_client': ['android_creator', 'android', 'ios', 'web'],
+                    'skip': ['hls', 'dash'],
                 }
             },
+            # Добавляем заголовки
+            'http_headers': {
+                'User-Agent': 'com.google.android.apps.youtube.creator/23.50.100 (Linux; U; Android 13)',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -248,12 +254,18 @@ def get_video_info():
             'no_warnings': True,
             'extract_flat': False,
             'nocheckcertificate': True,
-            # Используем ios client - самый надежный способ
+            # Пробуем разные методы обхода
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'web'],
+                    'player_client': ['android_creator', 'android', 'ios', 'web'],
+                    'skip': ['hls', 'dash'],
                 }
             },
+            # Добавляем заголовки
+            'http_headers': {
+                'User-Agent': 'com.google.android.apps.youtube.creator/23.50.100 (Linux; U; Android 13)',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
