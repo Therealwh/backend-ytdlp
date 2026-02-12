@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Скрипт для быстрого обновления backend на GitHub
+
+echo "🚀 Обновление backend на GitHub..."
+
+# Переходим в папку backend
+cd "$(dirname "$0")"
+
+# Проверяем есть ли git
+if ! command -v git &> /dev/null; then
+    echo "❌ Git не установлен!"
+    exit 1
+fi
+
+# Проверяем инициализирован ли git
+if [ ! -d .git ]; then
+    echo "📦 Инициализируем git репозиторий..."
+    git init
+    git branch -M main
+    
+    echo "⚠️  Нужно добавить remote URL!"
+    echo "Выполни: git remote add origin https://github.com/ВАШ_USERNAME/youtube-downloader-backend.git"
+    exit 1
+fi
+
+# Добавляем все файлы
+echo "📝 Добавляем файлы..."
+git add .
+
+# Коммитим
+echo "💾 Создаём коммит..."
+git commit -m "Fix CORS and add proxy for YouTube downloads"
+
+# Пушим
+echo "⬆️  Загружаем на GitHub..."
+git push origin main
+
+echo "✅ Готово! Railway автоматически задеплоит новую версию."
+echo "🔍 Проверь статус на https://railway.app/dashboard"
