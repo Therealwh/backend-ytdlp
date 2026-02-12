@@ -209,13 +209,20 @@ def get_download(task_id):
             def generate():
                 try:
                     bytes_sent = 0
-                    for chunk in response.iter_content(chunk_size=8192):
+                    chunk_size = 65536  # 64KB chunks для лучшей производительности
+                    for chunk in response.iter_content(chunk_size=chunk_size):
                         if chunk:
                             bytes_sent += len(chunk)
+                            if bytes_sent % (chunk_size * 10) == 0:  # Логируем каждые 640KB
+                                print(f"Streamed: {bytes_sent / 1024 / 1024:.2f} MB")
                             yield chunk
-                    print(f"Streaming completed: {bytes_sent} bytes sent")
+                    print(f"Streaming completed: {bytes_sent / 1024 / 1024:.2f} MB sent")
+                except GeneratorExit:
+                    print("Client disconnected during streaming")
+                    raise
                 except Exception as e:
                     print(f"Error during streaming: {str(e)}")
+                    raise
             
             return Response(
                 stream_with_context(generate()),
