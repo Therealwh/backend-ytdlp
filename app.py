@@ -176,8 +176,17 @@ def get_download(task_id):
         if response.status_code != 200:
             return jsonify({'error': f'Failed to fetch video: {response.status_code}'}), 500
         
-        # Определяем имя файла
-        filename = f"{title}.mp4".replace('/', '_').replace('\\', '_').replace('"', '')
+        # Определяем имя файла (только ASCII символы для HTTP заголовков)
+        import re
+        # Убираем все не-ASCII символы
+        filename_ascii = re.sub(r'[^\x00-\x7F]+', '_', title)
+        filename_ascii = filename_ascii.replace('/', '_').replace('\\', '_').replace('"', '')
+        filename = f"{filename_ascii}.mp4"
+        
+        # Для UTF-8 имён используем RFC 5987
+        from urllib.parse import quote
+        filename_utf8 = f"{title}.mp4".replace('/', '_').replace('\\', '_').replace('"', '')
+        filename_encoded = quote(filename_utf8.encode('utf-8'))
         
         # Возвращаем файл с правильными заголовками
         def generate():
@@ -192,7 +201,7 @@ def get_download(task_id):
             stream_with_context(generate()),
             content_type=response.headers.get('content-type', 'video/mp4'),
             headers={
-                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename_encoded}',
                 'Content-Length': response.headers.get('content-length', ''),
                 'Access-Control-Allow-Origin': '*',
             }
