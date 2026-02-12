@@ -27,12 +27,17 @@ def download_video(task_id, url, quality):
         tasks[task_id]['status'] = 'processing'
         
         # Настройки yt-dlp с обходом защиты YouTube
+        # Скачиваем файл во временную директорию
+        temp_dir = tempfile.gettempdir()
+        output_template = os.path.join(temp_dir, f'{task_id}.%(ext)s')
+        
         ydl_opts = {
             'format': get_format_string(quality),
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'nocheckcertificate': True,
+            'outtmpl': output_template,
             # Используем ios client - самый надежный способ
             'extractor_args': {
                 'youtube': {
@@ -42,36 +47,29 @@ def download_video(task_id, url, quality):
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Получаем информацию о видео
-            info = ydl.extract_info(url, download=False)
+            # Получаем информацию и скачиваем
+            info = ydl.extract_info(url, download=True)
             
             if not info:
                 raise Exception("Не удалось получить информацию о видео")
             
-            # Получаем прямую ссылку на скачивание
-            download_url = None
+            # Находим скачанный файл
+            downloaded_file = None
+            for ext in ['mp4', 'webm', 'mkv', 'm4a']:
+                potential_file = os.path.join(temp_dir, f'{task_id}.{ext}')
+                if os.path.exists(potential_file):
+                    downloaded_file = potential_file
+                    break
             
-            # Пробуем разные способы получить URL
-            if 'url' in info:
-                download_url = info['url']
-            elif 'requested_downloads' in info and len(info['requested_downloads']) > 0:
-                download_url = info['requested_downloads'][0].get('url')
-            elif 'formats' in info and len(info['formats']) > 0:
-                # Ищем формат с URL
-                for fmt in reversed(info['formats']):
-                    if fmt.get('url'):
-                        download_url = fmt['url']
-                        break
+            if not downloaded_file:
+                raise Exception("Файл не был скачан")
             
-            if not download_url:
-                raise Exception("Не удалось получить ссылку на скачивание")
-            
-            print(f"Task {task_id}: Got download URL")
+            print(f"Task {task_id}: Downloaded to {downloaded_file}")
             
             # Обновляем задачу
             tasks[task_id].update({
                 'status': 'completed',
-                'download_url': download_url,
+                'file_path': downloaded_file,
                 'title': info.get('title', 'video'),
                 'thumbnail': info.get('thumbnail', ''),
                 'duration': info.get('duration', 0),
@@ -170,7 +168,7 @@ def get_status(task_id):
 
 @app.route('/download/<task_id>', methods=['GET', 'OPTIONS'])
 def get_download(task_id):
-    """Проксировать скачивание через backend"""
+    """Скачать файл"""
     if request.method == 'OPTIONS':
         return '', 204
         
@@ -186,42 +184,12 @@ def get_download(task_id):
             print(f"Task not completed: {task['status']}")
             return jsonify({'error': 'Task not completed yet'}), 400
         
-        # Проверяем, нужно ли проксировать
-        proxy = request.args.get('proxy', 'false').lower() == 'true'
-        print(f"Proxy mode: {proxy}")
+        file_path = task.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
+            return jsonify({'error': 'File not found'}), 404
         
-        if not proxy:
-            # Возвращаем информацию о файле
-            return jsonify({
-                'download_url': task['download_url'],
-                'title': task['title'],
-                'thumbnail': task['thumbnail'],
-                'duration': task['duration'],
-                'view_count': task['view_count'],
-                'channel': task['channel'],
-            })
-        
-        # Проксируем скачивание
-        download_url = task['download_url']
-        print(f"Proxying download from: {download_url[:100]}...")
-        
-        # Делаем запрос к YouTube с правильными заголовками
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Range': 'bytes=0-',
-        }
-        
-        print("Making request to YouTube...")
-        response = requests.get(download_url, headers=headers, stream=True, timeout=30)
-        print(f"YouTube response status: {response.status_code}")
-        
-        if response.status_code not in [200, 206]:
-            print(f"YouTube returned error: {response.status_code}")
-            return jsonify({'error': f'YouTube returned status: {response.status_code}'}), 500
-        
-        # Создаем безопасное имя файла (только ASCII)
+        # Создаем безопасное имя файла
         safe_title = "video"
         try:
             safe_title = "".join(c for c in task['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -230,32 +198,31 @@ def get_download(task_id):
         except:
             safe_title = "video"
         
-        filename = f"{safe_title}.mp4"
-        print(f"Filename: {filename}")
+        # Определяем расширение
+        ext = os.path.splitext(file_path)[1] or '.mp4'
+        filename = f"{safe_title}{ext}"
         
-        def generate():
-            try:
-                bytes_sent = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        bytes_sent += len(chunk)
-                        yield chunk
-                print(f"Streaming completed: {bytes_sent} bytes sent")
-            except Exception as e:
-                print(f"Error streaming: {str(e)}")
+        print(f"Sending file: {file_path} as {filename}")
         
-        # Возвращаем поток с правильными заголовками
-        print("Starting stream...")
-        return Response(
-            stream_with_context(generate()),
-            headers={
-                'Content-Type': 'video/mp4',
-                'Content-Disposition': f'attachment; filename="{filename}"',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
-                'Cache-Control': 'no-cache',
-            }
+        # Отправляем файл и удаляем после отправки
+        response = send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='video/mp4'
         )
+        
+        # Удаляем файл после отправки
+        @response.call_on_close
+        def cleanup():
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"Cleaned up file: {file_path}")
+            except Exception as e:
+                print(f"Error cleaning up file: {str(e)}")
+        
+        return response
         
     except Exception as e:
         print(f"Error in get_download: {str(e)}")
